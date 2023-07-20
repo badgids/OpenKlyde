@@ -28,7 +28,7 @@ To run this bot:
 2. Download this repository [OpenKlyde](https://github.com/badgids/OpenKlyde)
 3. Open bot.py and at replace API_KEY with your bot's API key
 4. Install the requirements. I suggest using an Anaconda or Miniconda instance.
-    ```python pip install -r requirements.txt```
+    ```pip install -r requirements.txt```
 5. Run the bot with `python bot.py`
 
 Cheers!
