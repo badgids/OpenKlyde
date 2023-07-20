@@ -1,0 +1,43 @@
+{
+	"name": "textgen-ui",
+	"address": "http://localhost:5001/api/v1/",
+	"model": "model",
+	"generation": "generate",
+	"headers": {
+		"Accept": "application/json",
+		"Content-Type": "application/json"
+	},
+	"instruction-user": "### Instruction",
+	"instruction-response": "### Response",
+    "parameters": {
+		"prompt": "",
+		"stopping_strings": [],
+		"add_bos_token": "True",
+		"ban_eos_token": "True",
+		"do_sample": "False",
+		"early_stopping": "False",
+		"length_penalty": 0.1,
+		"min_length": 5,
+		"max_new_tokens": 4096,
+		"max_tokens": 8192,
+		"truncation_length": 4096,
+		"no_repeat_ngram_size": 0,
+		"num_beams": 1,
+		"penalty_alpha": 0,
+		"preset": "None",
+		"seed": -1,
+		"skip_special_tokens": "True",
+		"epsilon_cutoff": 0.0,
+		"eta_cutoff": 0.0,
+		"mirostat_mode": 0,
+		"mirostat_tau": 0,
+		"mirostat_eta": 0,
+		"repetition_penalty": 1.18,
+		"temperature": 0.7,
+		"tfs": 0.8,
+		"top_a": 0.0,
+		"top_k": 0,
+		"top_p": 1.0,
+		"typical_p": 1.0
+    }
+}

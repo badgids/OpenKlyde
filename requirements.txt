@@ -1,0 +1,5 @@
+llama-cpp-python
+llama-cpp-python[server]
+discord
+httpx
+pillow
