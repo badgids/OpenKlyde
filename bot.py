@@ -7,6 +7,8 @@ import httpx
 import random
 import functions
 import datetime
+import base64
+import io
 
 from aiohttp import ClientSession
 from discord.ext import commands
@@ -15,7 +17,7 @@ from discord import Interaction
 
 # API Keys and Information
 # Your API keys and tokens go here. Do not commit with these in place!
-discord_api_key = "Place your Discord Bot API Key here"
+discord_api_key = "PUT_YOUR_DISCORD_API_KEY_HERE"
 
 intents = discord.Intents.all()
 intents.message_content = True
@@ -51,12 +53,90 @@ async def update_status():
         await client.change_presence(activity=activity)
         status_last_update = datetime.datetime.now()
 
+# Helper function to convert image to base64
+def encode_image_to_base64(image_bytes):
+    return base64.b64encode(image_bytes).decode('utf-8')
+
+async def handle_image(message):
+    # Mark the message as read (we know we're working on it)
+    await message.add_reaction('✨')
+    try:
+        # Process each attachment (actually just one for now)
+        for attachment in message.attachments:
+            # Check if it is an image based on content type
+            if any(attachment.filename.lower().endswith(ext) for ext in ['.png', '.jpg', '.jpeg', '.gif', '.bmp']):
+                # Download the image bytes
+                image_bytes = await attachment.read()  # Uses the read method from discord.Attachment class
+                
+                # Convert the image to base64
+                base64_image = encode_image_to_base64(image_bytes)
+                
+                # Define the POST data
+                post_data = {
+                    'prompt': "USER: Describe what you see in this image: [img-1] \nASSISTANT: Here we have ",
+                    'n_predict': 256,
+                    'image_data': [{"data": base64_image, "id": 1}],
+                    'ignore_eos': False,
+                    'temperature': 0.1
+                }
+                
+                # Encode the data as JSON
+                json_data = json.dumps(post_data)
+                
+                # Set the request headers
+                headers = {
+                    'Content-Type': 'application/json',
+                }
+                
+                # Specify the URL
+                llava_url = "http://localhost:8007/completion"
+                
+                # Perform the HTTP POST request for image analysis
+                async with ClientSession() as session:
+                    async with session.post(llava_url, headers=headers, data=json_data) as response:
+                        if response.status == 200:
+                            response_data = await response.json()
+                            image_description = response_data['content']
+                            
+                            # Send the response back to the Discord channel
+                            #await message.channel.send(image_description, reference=message)
+                            return image_description
+                        else:
+                            # Handle unexpected status code
+                            errorstr = f"Error: The server responded with an unexpected status code: {response.status}"
+                            await functions.write_to_log(errorstr)
+                            return None
+
+            
+            else:
+                # If no image is found
+                await functions.write_to_log("No supported image attachments found.")
+                return None
+    
+    except Exception as e:
+        # Handle any other exception that was not explicitly caught
+        error_msg = f"An error occurred: {str(e)}"
+        await functions.write_to_log(error_msg)
+        return None
+    return None
+
 async def bot_behavior(message):
 
     # If the bot wrote the message, don't do anything more!
     if message.author == client.user:
         return False
     
+    # If the bot is mentioned in a message and message has attachment, reply to the message parsing the attachment
+    if client.user.mentioned_in(message) and message.attachments:
+        img_description = await handle_image(message)  # Function to handle image processing
+        if img_description:
+            await bot_answer(message, img_description)
+            # Set the time of last sent message to right now
+            last_message_sent = datetime.datetime.now()
+            return True
+        else:
+            return False
+
     # If the bot is mentioned in a message, reply to the message
     if client.user.mentioned_in(message):
         await bot_answer(message)
@@ -65,6 +145,15 @@ async def bot_behavior(message):
         last_message_sent = datetime.datetime.now()
         return True
     
+    #If someone DMs the bot and message has attachment, reply to them in the same DM parsing the attachment
+    if message.guild is None and not message.author.bot and message.attachments:
+        img_description = await handle_image(message)  # Function to handle image processing
+        if img_description:
+            await bot_answer(message, img_description)
+            return True
+        else:
+            return False
+
     #If someone DMs the bot, reply to them in the same DM
     if message.guild is None and not message.author.bot:
         await bot_answer(message)
@@ -84,7 +173,7 @@ async def bot_behavior(message):
     
     return False
 
-async def bot_answer(message):
+async def bot_answer(message, image_description=None):
     # Mark the message as read (we know we're working on it)
     await message.add_reaction('✨')
     
@@ -95,17 +184,18 @@ async def bot_answer(message):
     user_input = functions.clean_user_message(message.clean_content)
     
     #Is this an image request?
-    image_request = functions.check_for_image_request(user_input)
+    #image_request = functions.check_for_image_request(user_input)
     character = functions.get_character(character_card)
+    image_request = False
     
     global text_api
 
-    if image_request:
-        prompt = await functions.create_image_prompt(user_input, character, text_api)
-    else:
-        reply = await get_reply(message)
-        history = await functions.get_conversation_history(user, 15)
-        prompt = await functions.create_text_prompt(user_input, user, character, character_card['name'], history, reply, text_api)
+    #if image_request:
+    #    prompt = await functions.create_image_prompt(user_input, character, text_api)
+    #else:
+    reply = await get_reply(message)
+    history = await functions.get_conversation_history(user, 15)
+    prompt = await functions.create_text_prompt(user_input, user, character, character_card['name'], history, reply, text_api, image_description)
         
     
     queue_item = {
@@ -161,11 +251,11 @@ async def handle_llm_response(content, response):
     
     queue_item = {"response": llm_message,"content": content}
 
-    if content["image"] == True:
-        queue_to_process_image.put_nowait(queue_item)
+    #if content["image"] == True:
+    #    queue_to_process_image.put_nowait(queue_item)
         
-    else:
-        queue_to_send_message.put_nowait(queue_item)
+    #else:
+    queue_to_send_message.put_nowait(queue_item)
 
 async def send_to_model_queue():
     global text_api
@@ -232,13 +322,13 @@ async def send_to_user_queue():
         await reply["content"]["message"].add_reaction('✅')
         
         
-        if reply["content"]["image"]:
-            image_file = discord.File(reply["image"])
-            await reply["content"]["message"].channel.send(reply["response"], file=image_file, reference=reply["content"]["message"])
-            os.remove(reply["image"])
+        #if reply["content"]["image"]:
+        #    image_file = discord.File(reply["image"])
+        #    await reply["content"]["message"].channel.send(reply["response"], file=image_file, reference=reply["content"]["message"])
+        #    os.remove(reply["image"])
         
-        else:
-            await reply["content"]["message"].channel.send(reply["response"], reference=reply["content"]["message"])
+        #else:
+        await reply["content"]["message"].channel.send(reply["response"], reference=reply["content"]["message"])
 
         queue_to_send_message.task_done()
 
@@ -252,6 +342,7 @@ async def on_ready():
     global character_card
     
     text_api = await functions.set_api("text-default.json")
+    print(text_api)
     image_api = await functions.set_api("image-default.json")
     
     api_check = await functions.api_status_check(text_api["address"] + text_api["model"], headers=text_api["headers"])

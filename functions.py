@@ -91,10 +91,14 @@ def check_for_image_request(user_message):
     result = bool(pattern.search(user_message))
     return result
 
-async def create_text_prompt(user_input, user, character, bot, history, reply, text_api):
+async def create_text_prompt(user_input, user, character, bot, history, reply, text_api, image_description=None):
 
-    prompt = character + history + reply + user + ": " + user_input + "\n" + bot + ": "
-    stopping_strings = ["\n" + user + ":", user + ":", bot + ":", "You:"]
+    if image_description:
+        image_prompt = "[NOTE TO AI - USER MESSAGE CONTAINS AN IMAGE. IMAGE RECOGNITION HAS BEEN RUN ON THE IMAGE. DESCRIPTION OF THE IMAGE: " + image_description.capitalize() + "]"
+        prompt = character + history + reply + user + ": " + user_input + "\n" + image_prompt + "\n" + bot + ": "
+    else:
+        prompt = character + history + reply + user + ": " + user_input + "\n" + bot + ": "
+    stopping_strings = ["\n" + user + ":", user + ":", bot + ":", "You:", "\n"]
     
     data = text_api["parameters"]
     data.update({"prompt": prompt})
@@ -235,9 +239,10 @@ def get_character(character_card):
     
     # Instructions on what the bot should do. This is where an instruction model will get its stuff.
     character = character + character_card["instructions"]
-    
+
+    examples2 = [] # put example responses here    
     # Example messages!
-    character = character + "Here is how you speak: " + "\n" + '\n'.join(character_card['examples']) +"\n"
+    character = character + " Here are examples of how you speak: " + "\n" + '\n'.join(examples2) +"\n"
 
     return character
     
