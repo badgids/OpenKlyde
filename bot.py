@@ -9,6 +9,16 @@ import functions
 import datetime
 import base64
 import io
+import hashlib
+import re
+from typing import List
+from pydub import AudioSegment
+
+# For xtts2 TTS
+import torch
+import torchaudio
+from TTS.tts.configs.xtts_config import XttsConfig
+from TTS.tts.models.xtts import Xtts
 
 from aiohttp import ClientSession
 from discord.ext import commands
@@ -17,7 +27,7 @@ from discord import Interaction
 
 # API Keys and Information
 # Your API keys and tokens go here. Do not commit with these in place!
-discord_api_key = "PUT_YOUR_DISCORD_API_KEY_HERE"
+discord_api_key = "PUT_API_KEY_HERE"
 
 intents = discord.Intents.all()
 intents.message_content = True
@@ -29,6 +39,11 @@ queue_to_process_message = asyncio.Queue() # Process messages and send to LLM
 queue_to_process_image = asyncio.Queue() # Process images from SD API
 queue_to_send_message = asyncio.Queue() # Send messages to chat and the user
 
+# Global TTS model variables
+tts_config = None
+tts_model = None
+gpt_cond_latent = None
+speaker_embedding = None
 
 # Character Card (current character personality)
 character_card = {}
@@ -307,6 +322,44 @@ async def send_to_stable_diffusion_queue():
                 queue_to_send_message.put_nowait(queue_item)
                 queue_to_process_image.task_done()
 
+# New function to handle TTS generation
+async def generate_tts(text):
+    await functions.write_to_log("Generating TTS for the given text...")
+    out = tts_model.inference(
+        text,
+        "en",
+        gpt_cond_latent,
+        speaker_embedding,
+        temperature=0.70,
+    )
+    md5hash = hashlib.md5(text.encode('utf-8'))
+    md5hash_hex = md5hash.hexdigest()
+    audio_path = "tts_output_" + md5hash_hex + ".wav"
+    torchaudio.save(audio_path, torch.tensor(out["wav"]).unsqueeze(0), 24000)
+    return audio_path
+
+def split_dialogue(dialogue: str) -> List[str]:
+    # match any unicode emoji, or !, ?, or one or more . together
+    pattern = r'[\U0001F100-\U0001F64F\U0001F680-\U0001F6FF\U0001F700-\U0001F77F\U0001F780-\U0001F7FF\U0001F800-\U0001F8FF\U0001F900-\U0001F9FF\U0001FA00-\U0001FA6F\U0001FA70-\U0001FAFF\U00002702-\U000027B0\U00002600-\U000027BF\U00002b50\U00002b55\U00002328\U0000232a\U0001f601-\U0001f64f\U00002702-\U000027b0\U00002600-\U000027BF\U0001f300-\U0001f64F\U0001f680-\U0001f6c5]|\!|\?|\.{1,}'
+
+    # split the string into sentences
+    sentences = re.split(pattern, dialogue)
+    
+    # remove any empty strings resulted from split
+    sentences = [s for s in sentences if s]
+    
+    # combine the sentences two by one
+    dialogue_parts = [sentences[i] + sentences[i+1] for i in range(0, len(sentences)-1, 2)]
+    
+    # if there is one sentence left, add it separately
+    if len(sentences) % 2 == 1:
+        dialogue_parts.append(sentences[-1])
+    
+    return dialogue_parts
+    # This function should work well for most human dialogue and written chat logs as long as they follow usual punctuation and emoji conventions. 
+    # However, it may not be perfect. For example, it may not handle correctly dialogue that contains abbreviations with periods (e.g., "Mr.", "Mrs.") or numbers with periods (e.g., "1.5", "100.00").
+    # If such cases are common in your data, you will need to write additional code to handle them.
+
 # Reply queue that's used to allow the bot to reply even while other stuff if is processing 
 async def send_to_user_queue():
     while True:
@@ -316,11 +369,36 @@ async def send_to_user_queue():
         
         # Add the message to user's history
         await functions.add_to_conversation_history(reply["response"], character_card["name"], reply["content"]["user"])
-        
+
         # Update reactions
         await reply["content"]["message"].remove_reaction('✨', client.user)
         await reply["content"]["message"].add_reaction('✅')
-        
+
+        # After getting the dialogue, split it
+        dialogue_parts = split_dialogue(reply["response"])
+
+        # Generate TTS audio for each part
+        audio_parts = []
+        for part in dialogue_parts:
+            audio_path = await generate_tts(part)
+            audio_parts.append(AudioSegment.from_wav(audio_path))
+            os.remove(audio_path)
+
+        # Concatenate the audio parts
+        combined_audio = sum(audio_parts)
+
+        # Save the combined audio file
+        md5hash = hashlib.md5(reply["response"].encode('utf-8'))
+        md5hash_hex = md5hash.hexdigest()
+        combined_audio_path = "tts_output_" + md5hash_hex + ".wav"
+        combined_audio.export(combined_audio_path, format="wav")
+
+        # Send the combined audio file
+        audio_file = discord.File(combined_audio_path)
+
+       # # Generate TTS audio from the response
+       # audio_path = await generate_tts(reply["response"])
+       # audio_file = discord.File(audio_path)
         
         #if reply["content"]["image"]:
         #    image_file = discord.File(reply["image"])
@@ -328,7 +406,9 @@ async def send_to_user_queue():
         #    os.remove(reply["image"])
         
         #else:
-        await reply["content"]["message"].channel.send(reply["response"], reference=reply["content"]["message"])
+        await reply["content"]["message"].channel.send(reply["response"], file=audio_file, reference=reply["content"]["message"])
+
+        os.remove(combined_audio_path)
 
         queue_to_send_message.task_done()
 
@@ -340,9 +420,21 @@ async def on_ready():
     global text_api
     global image_api
     global character_card
+    global tts_config, tts_model, gpt_cond_latent, speaker_embedding
+
+    # Load TTS model
+    await functions.write_to_log("Loading TTS model...")
+    tts_config = XttsConfig()
+    tts_config.load_json("xtts/config.json")
+    tts_model = Xtts.init_from_config(tts_config)
+    tts_model.load_checkpoint(tts_config, checkpoint_dir="./xtts/model", use_deepspeed=False)
+    tts_model.cuda() 
+
+    # Compute speaker latents
+    await functions.write_to_log("Computing speaker latents...")
+    gpt_cond_latent, speaker_embedding = tts_model.get_conditioning_latents(audio_path=[r"xtts/scarlett24000.wav"])
     
     text_api = await functions.set_api("text-default.json")
-    print(text_api)
     image_api = await functions.set_api("image-default.json")
     
     api_check = await functions.api_status_check(text_api["address"] + text_api["model"], headers=text_api["headers"])

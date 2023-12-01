@@ -241,6 +241,7 @@ def get_character(character_card):
     character = character + character_card["instructions"]
 
     examples2 = [] # put example responses here    
+
     # Example messages!
     character = character + " Here are examples of how you speak: " + "\n" + '\n'.join(examples2) +"\n"
 
