@@ -11,8 +11,10 @@ import base64
 import io
 import hashlib
 import re
+import unittest
 from typing import List
 from pydub import AudioSegment
+from PIL import Image
 
 # For xtts2 TTS
 import torch
@@ -27,7 +29,7 @@ from discord import Interaction
 
 # API Keys and Information
 # Your API keys and tokens go here. Do not commit with these in place!
-discord_api_key = "PUT_API_KEY_HERE"
+discord_api_key = "PUT_YOUR_API_KEY_HERE"
 
 intents = discord.Intents.all()
 intents.message_content = True
@@ -55,6 +57,45 @@ image_api = {}
 status_last_update = None
 last_message_sent = datetime.datetime.now()
 
+# Unit tests
+class TestSplitDialogue(unittest.TestCase):
+    
+    def test_short_dialogue(self):
+        self.assertEqual(split_dialogue("Hello", 175), ["Hello"])
+
+    def test_exact_length_dialogue(self):
+        dialogue = "a" * 175
+        self.assertEqual(split_dialogue(dialogue, 175), [dialogue])
+
+    def test_long_dialogue_without_punctuation(self):
+        dialogue = "a" * 200
+        self.assertEqual(split_dialogue(dialogue, 175), [dialogue])
+
+    def test_long_dialogue_with_punctuation(self):
+        dialogue = "a" * 173 + "." + "b" * 173 + "!"
+        self.assertEqual(len(split_dialogue(dialogue, 175)), 2)
+
+    def test_longer_dialogue_with_punctuation(self):
+        dialogue = "a" * 170 + "." + "b" * 170 + "!"
+        dialogue += "a" * 170 + "." + "b" * 170 + "!"
+        dialogue += "a" * 170 + "." + "b" * 170 + "!"
+        dialogue += "a" * 170 + "." + "b" * 170 + "!"
+        dialogue += "a" * 170 + "." + "b" * 170 + "!"
+        self.assertEqual(len(split_dialogue(dialogue, 175)), 10)
+
+    def test_longer_dialogue_with_emoji(self):
+        dialogue = "a" * 170 + "😊" + "b" * 170 + "!"
+        dialogue += "a" * 170 + "." + "b" * 170 + "!"
+        dialogue = "a" * 170 + "😊" + "b" * 170 + "!"
+        dialogue += "a" * 170 + "." + "b" * 170 + "!"
+        dialogue += "a" * 170 + "." + "b" * 170 + "!"
+        self.assertEqual(len(split_dialogue(dialogue, 175)), 10)
+
+    def test_dialogue_with_emoji(self):
+        dialogue = "a" * 100 + "😊" + "b" * 74
+        #expected_parts = ["a" * 100 + "😊", "b" * 74]
+        self.assertEqual(len(split_dialogue(dialogue, 175)), 1)
+
 async def update_status():
 
     global status_last_update
@@ -72,6 +113,13 @@ async def update_status():
 def encode_image_to_base64(image_bytes):
     return base64.b64encode(image_bytes).decode('utf-8')
 
+async def convert_webp_bytes_to_png(image_bytes):
+    with io.BytesIO(image_bytes) as image_file:
+        with Image.open(image_file) as img:
+            output_buffer = io.BytesIO()
+            img.save(output_buffer, format="PNG")
+            return output_buffer.getvalue()
+
 async def handle_image(message):
     # Mark the message as read (we know we're working on it)
     await message.add_reaction('✨')
@@ -79,9 +127,13 @@ async def handle_image(message):
         # Process each attachment (actually just one for now)
         for attachment in message.attachments:
             # Check if it is an image based on content type
-            if any(attachment.filename.lower().endswith(ext) for ext in ['.png', '.jpg', '.jpeg', '.gif', '.bmp']):
+            if any(attachment.filename.lower().endswith(ext) for ext in ['.png', '.jpg', '.jpeg', '.gif', '.bmp', '.webp']):
                 # Download the image bytes
                 image_bytes = await attachment.read()  # Uses the read method from discord.Attachment class
+
+                # if .webp -> convert to PNG for llava
+                if attachment.filename.lower().endswith('.webp'):
+                    image_bytes = await convert_webp_bytes_to_png(image_bytes)
                 
                 # Convert the image to base64
                 base64_image = encode_image_to_base64(image_bytes)
@@ -135,12 +187,40 @@ async def handle_image(message):
         return None
     return None
 
-async def bot_behavior(message):
+# Dictionary to keep track of the bot's last message time and last mentioned channel by guild
+bot_last_message_time = {}
+bot_last_mentioned_channel = {}
 
-    # If the bot wrote the message, don't do anything more!
+async def bot_behavior(message):
+    global bot_last_message_time
+    global bot_last_mentioned_channel
+
+    # If the bot wrote the message, update last message time
     if message.author == client.user:
+        bot_last_message_time[message.guild.id] = datetime.datetime.now()
         return False
     
+    # If the bot is mentioned in a message and not a DM, update last mentioned channel
+    if client.user.mentioned_in(message) and message.guild:
+        bot_last_mentioned_channel[message.guild.id] = message.channel
+
+# TODO: implement sending random messages to channel after timeout
+ #   # If message not directed to bot
+ #   if not client.user.mentioned_in(message):
+ #       # Check if it's been 30 minutes since the bot last spoke
+ #       # and the bot was mentioned in this guild
+ #       if message.guild and message.guild.id in bot_last_message_time:
+ #           time_since_bot_last_spoke = datetime.datetime.now() - bot_last_message_time[message.guild.id]
+ #           if time_since_bot_last_spoke.total_seconds() >= 180:  # 3 minutes * 60 seconds
+ #               # Check if there's a recorded channel from a bot mention
+ #               if message.guild.id in bot_last_mentioned_channel:
+ #                   await bot_answer_with_pun(bot_last_mentioned_channel[message.guild.id])
+ #                   # Update the last message time after sending a pun
+ #                   bot_last_message_time[message.guild.id] = datetime.datetime.now()
+ #                   return True
+
+
+
     # If the bot is mentioned in a message and message has attachment, reply to the message parsing the attachment
     if client.user.mentioned_in(message) and message.attachments:
         img_description = await handle_image(message)  # Function to handle image processing
@@ -338,27 +418,113 @@ async def generate_tts(text):
     torchaudio.save(audio_path, torch.tensor(out["wav"]).unsqueeze(0), 24000)
     return audio_path
 
-def split_dialogue(dialogue: str) -> List[str]:
-    # match any unicode emoji, or !, ?, or one or more . together
-    pattern = r'[\U0001F100-\U0001F64F\U0001F680-\U0001F6FF\U0001F700-\U0001F77F\U0001F780-\U0001F7FF\U0001F800-\U0001F8FF\U0001F900-\U0001F9FF\U0001FA00-\U0001FA6F\U0001FA70-\U0001FAFF\U00002702-\U000027B0\U00002600-\U000027BF\U00002b50\U00002b55\U00002328\U0000232a\U0001f601-\U0001f64f\U00002702-\U000027b0\U00002600-\U000027BF\U0001f300-\U0001f64F\U0001f680-\U0001f6c5]|\!|\?|\.{1,}'
+def strip_emoji(part: str):
+    pattern_new = (
+    "["
+    "\U0001F1E0-\U0001F1FF"  # flags (iOS)
+    "\U0001F300-\U0001F5FF"  # symbols & pictographs
+    "\U0001F600-\U0001F64F"  # emoticons
+    "\U0001F680-\U0001F6FF"  # transport & map symbols
+    "\U0001F700-\U0001F77F"  # alchemical symbols
+    "\U0001F780-\U0001F7FF"  # Geometric Shapes Extended
+    "\U0001F800-\U0001F8FF"  # Supplemental Arrows-C
+    "\U0001F900-\U0001F9FF"  # Supplemental Symbols and Pictographs
+    "\U0001FA00-\U0001FA6F"  # Chess Symbols
+    "\U0001FA70-\U0001FAFF"  # Symbols and Pictographs Extended-A
+    "\U00002702-\U000027B0"  # Dingbats
+    "\U000024C2-\U0001F251" 
+    "]{1,}"
+    )
+    return re.sub(pattern_new, '', part)
 
-    # split the string into sentences
-    sentences = re.split(pattern, dialogue)
-    
-    # remove any empty strings resulted from split
-    sentences = [s for s in sentences if s]
-    
-    # combine the sentences two by one
-    dialogue_parts = [sentences[i] + sentences[i+1] for i in range(0, len(sentences)-1, 2)]
-    
-    # if there is one sentence left, add it separately
-    if len(sentences) % 2 == 1:
-        dialogue_parts.append(sentences[-1])
-    
+# TODO try a different approach for chunking
+# Maybe do the inverse - treat any alphanum character that is not ?!.<emoji> as not-a-sentence-ending
+# That way if a char is detected that is not alphanum, or is ?!.<emoji> treat it or a group of it, as sentence ending
+
+# Another way is to first chunk into sentences - 1 sentence in element
+# Then do another pass and try to group them in chunks less than 175
+# So only forward passes
+
+# find biggest chunk (that is at most max_length) counting from the end of given string
+def get_start_idx_of_biggest_chunk_from_end(currStr: str, max_length):
+    # match any unicode emoji, or !, ?, or one or more . together
+    #pattern = r'[\U0001F100-\U0001F64F\U0001F680-\U0001F6FF\U0001F700-\U0001F77F\U0001F780-\U0001F7FF\U0001F800-\U0001F8FF\U0001F900-\U0001F9FF\U0001FA00-\U0001FA6F\U0001FA70-\U0001FAFF\U00002702-\U000027B0\U00002600-\U000027BF\U00002b50\U00002b55\U00002328\U0000232a\U0001f601-\U0001f64f\U00002702-\U000027b0\U00002600-\U000027BF\U0001f300-\U0001f64F\U0001f680-\U0001f6c5]|\!|\?|\.{1,}'
+    pattern_new = (
+    "["
+    "\U0001F1E0-\U0001F1FF"  # flags (iOS)
+    "\U0001F300-\U0001F5FF"  # symbols & pictographs
+    "\U0001F600-\U0001F64F"  # emoticons
+    "\U0001F680-\U0001F6FF"  # transport & map symbols
+    "\U0001F700-\U0001F77F"  # alchemical symbols
+    "\U0001F780-\U0001F7FF"  # Geometric Shapes Extended
+    "\U0001F800-\U0001F8FF"  # Supplemental Arrows-C
+    "\U0001F900-\U0001F9FF"  # Supplemental Symbols and Pictographs
+    "\U0001FA00-\U0001FA6F"  # Chess Symbols
+    "\U0001FA70-\U0001FAFF"  # Symbols and Pictographs Extended-A
+    "\U00002702-\U000027B0"  # Dingbats
+    "\U000024C2-\U0001F251" 
+    "]|\!|\?|\.{1,}"
+    )
+    #pattern = r'[-\U0001f6c5]|\!|\?|\.{1,}'
+
+    # if whole string not more than 175 - return it as a chunk
+    if len(currStr) <= max_length:
+        #print("return whole")
+        return 0
+
+    # find start idx of biggest chunk from end
+    current_chunk_len = 0
+    for i in range(len(currStr) - 1, -1, -1):
+        if i == 0:
+            #functions.write_to_log("get_start_idx_of_biggest_chunk_from_end() reached beginning - returning it whole")
+            # should not happen, reached the beginning, return whole string
+            return 0
+        if current_chunk_len > max_length:
+            # move idx forward to a sentence boundary where chunk would be <175
+            separator_in_progress = False
+            for j in range(i, len(currStr)):
+                #print("backtracking,currstr[i]=" + currStr[j] + ", j=" + str(j) + " i=" + str(i))
+                if re.match(pattern_new, currStr[j]):
+                    separator_in_progress = True # could be a multi-char separator
+                else:
+                    if separator_in_progress == True:
+                        #print("ended backtracking, returning " + str(j))
+                        separator_in_progress = False
+                        return j
+
+                # if somehow chunk was longer than limit without any sentence endings, oh well, return the whole thing
+                if j == (len(currStr) - 1):
+                    functions.write_to_log("sentence longer than maxlength - returning it whole")
+                    return 0
+                    
+        current_chunk_len += 1
+
+    return 0
+
+# This function returns a list of strings, each string being a chunk of the original dialogue that adheres to the requirements (chunk <= 175).
+# Please note that this function assumes that the dialogue does not contain any sentences longer than the max length without any separators. If such sentences are possible, the function will need to be modified to handle them.
+# This function should work well for most human dialogue and written chat logs as long as they follow usual punctuation and emoji conventions. 
+# However, it may not be perfect. For example, it may not handle correctly dialogue that contains abbreviations with periods (e.g., "Mr.", "Mrs.") or numbers with periods (e.g., "1.5", "100.00").
+# If such cases are common in your data, you will need to write additional code to handle them.
+def split_dialogue(dialogue: str, max_length) -> List[str]:
+
+    if len(dialogue) <= max_length:
+        return [dialogue]
+
+    dialogue_parts = []
+    start_idx = len(dialogue)
+    while True:
+        currStr = dialogue[:start_idx]
+        #print("start_idx = " + str(start_idx))
+        #print("currStr = " + currStr)
+        start_idx = get_start_idx_of_biggest_chunk_from_end(currStr, max_length)
+        dialogue_parts.append(currStr[start_idx:])
+        if start_idx == 0:
+            break
+
+    dialogue_parts.reverse()
     return dialogue_parts
-    # This function should work well for most human dialogue and written chat logs as long as they follow usual punctuation and emoji conventions. 
-    # However, it may not be perfect. For example, it may not handle correctly dialogue that contains abbreviations with periods (e.g., "Mr.", "Mrs.") or numbers with periods (e.g., "1.5", "100.00").
-    # If such cases are common in your data, you will need to write additional code to handle them.
+        
 
 # Reply queue that's used to allow the bot to reply even while other stuff if is processing 
 async def send_to_user_queue():
@@ -375,17 +541,25 @@ async def send_to_user_queue():
         await reply["content"]["message"].add_reaction('✅')
 
         # After getting the dialogue, split it
-        dialogue_parts = split_dialogue(reply["response"])
+        await functions.write_to_log("reply response is len " + str(len(reply["response"])))
+        dialogue_parts = split_dialogue(reply["response"], 200)
+        await functions.write_to_log("dialogue parts is len " + str(len(dialogue_parts)))
 
         # Generate TTS audio for each part
         audio_parts = []
         for part in dialogue_parts:
+            # better not send emojis to TTS
+            part = strip_emoji(part)
+            await functions.write_to_log("part = " + part)
             audio_path = await generate_tts(part)
             audio_parts.append(AudioSegment.from_wav(audio_path))
             os.remove(audio_path)
 
-        # Concatenate the audio parts
-        combined_audio = sum(audio_parts)
+        # Create a silent audio segment of 0.5 seconds (500 milliseconds)
+        silence = AudioSegment.silent(duration=800)     
+
+        # Add the silent segment between each pair of audio segments
+        combined_audio = sum(x for y in zip(audio_parts, [silence]*len(audio_parts)) for x in y)
 
         # Save the combined audio file
         md5hash = hashlib.md5(reply["response"].encode('utf-8'))
@@ -633,3 +807,4 @@ async def parameter_select_callback(interaction):
 
 
 client.run(discord_api_key)
+#unittest.main()
