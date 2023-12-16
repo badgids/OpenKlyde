@@ -449,15 +449,17 @@ async def send_to_stable_diffusion_queue():
             async with session.post(image_api["link"], headers=image_api["headers"], data=data_json) as response:
                 response = await response.read()
                 sd_response = json.loads(response)
-                
-                image = functions.image_from_string(sd_response["images"][0])
-                
-                queue_item = {
-                    "response": image_prompt["response"],
-                    "image": image,
-                    "content": image_prompt["content"]
-                }
-                queue_to_send_message.put_nowait(queue_item)
+                if "images" not in sd_response:
+                    await functions.write_to_log("Stable Diffusion did not return a valid image. Ran out of VRAM perhaps?")
+                else:
+                    image = functions.image_from_string(sd_response["images"][0])
+                    
+                    queue_item = {
+                        "response": image_prompt["response"],
+                        "image": image,
+                        "content": image_prompt["content"]
+                    }
+                    queue_to_send_message.put_nowait(queue_item)
                 queue_to_process_image.task_done()
 
 # New function to handle TTS generation
@@ -599,48 +601,39 @@ async def send_to_user_queue():
             await reply["content"]["message"].remove_reaction('✨', client.user)
             await reply["content"]["message"].add_reaction('✅')
 
-        # After getting the dialogue, split it
-#        await functions.write_to_log("reply response is len " + str(len(reply["response"])))
-        dialogue_parts = split_dialogue(reply["response"], 200)
-#        await functions.write_to_log("dialogue parts is len " + str(len(dialogue_parts)))
+        # Do not do TTS for image gen responses
+        if not reply["content"]["image"]:
+            try:
+                # After getting the dialogue, split it
+                dialogue_parts = split_dialogue(reply["response"], 200)
 
-        # Generate TTS audio for each part
-        audio_parts = []
-        for part in dialogue_parts:
-            # better not send emojis to TTS
-            part = strip_emoji(part)
-#            await functions.write_to_log("part = " + part)
-            audio_path = await generate_tts(part)
-            audio_parts.append(AudioSegment.from_wav(audio_path))
-            os.remove(audio_path)
+                # Generate TTS audio for each part
+                audio_parts = []
+                for part in dialogue_parts:
+                    # better not send emojis to TTS
+                    part = strip_emoji(part)
+                    audio_path = await generate_tts(part)
+                    audio_parts.append(AudioSegment.from_wav(audio_path))
+                    os.remove(audio_path)
 
-        #print("finished sending tts")
+                # Create a silent audio segment of 0.5 seconds (500 milliseconds)
+                silence = AudioSegment.silent(duration=800)     
 
-        # Create a silent audio segment of 0.5 seconds (500 milliseconds)
-        silence = AudioSegment.silent(duration=800)     
+                # Add the silent segment between each pair of audio segments
+                combined_audio = sum(x for y in zip(audio_parts, [silence]*len(audio_parts)) for x in y)
 
-        # Add the silent segment between each pair of audio segments
-        combined_audio = sum(x for y in zip(audio_parts, [silence]*len(audio_parts)) for x in y)
+                # Save the combined audio file
+                md5hash = hashlib.md5(reply["response"].encode('utf-8'))
+                md5hash_hex = md5hash.hexdigest()
+                combined_audio_path = "tts_output_" + md5hash_hex + ".wav"
+                combined_audio.export(combined_audio_path, format="wav")
 
-        # Save the combined audio file
-        md5hash = hashlib.md5(reply["response"].encode('utf-8'))
-        md5hash_hex = md5hash.hexdigest()
-        combined_audio_path = "tts_output_" + md5hash_hex + ".wav"
-        combined_audio.export(combined_audio_path, format="wav")
+                # Send the combined audio file
+                audio_file = discord.File(combined_audio_path)
+            except Exception as e:
+                # TTS generation failed, skip TTS audio
+                audio_file = None
 
-        # Send the combined audio file
-        audio_file = discord.File(combined_audio_path)
-
-       # # Generate TTS audio from the response
-       # audio_path = await generate_tts(reply["response"])
-       # audio_file = discord.File(audio_path)
-        
-        if reply["content"]["image"]:
-            image_file = discord.File(reply["image"])
-            await reply["content"]["message"].channel.send(reply["response"], file=image_file, reference=reply["content"]["message"])
-            os.remove(reply["image"])
-        
-        else:
             if not reply["content"]["channel"]:
                 await reply["content"]["message"].channel.send(reply["response"], file=audio_file, reference=reply["content"]["message"])
                 #await reply["content"]["message"].channel.send(reply["response"], reference=reply["content"]["message"])
@@ -649,6 +642,11 @@ async def send_to_user_queue():
                 #await functions.write_to_log("Sending random message.")
                 print("Sending random message.")
                 await reply["content"]["channel"].send(reply["response"])
+        
+        else:
+            image_file = discord.File(reply["image"])
+            await reply["content"]["message"].channel.send(reply["response"], file=image_file, reference=reply["content"]["message"])
+            os.remove(reply["image"])
 
 
         queue_to_send_message.task_done()

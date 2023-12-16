@@ -257,6 +257,20 @@ def clean_user_message(user_input):
     
     return user_input
 
+# Mistral-medium hallucinates some stuff in parentheses on newlines and then it hallucinates more
+def truncate_from_newline_parenthesis(text):
+    # This regex pattern matches an open parenthesis at the start of any line within the text
+    pattern = r'^\('
+    
+    # Use the MULTILINE flag to ensure ^ matches the start of each line
+    match = re.search(pattern, text, re.MULTILINE)
+    
+    # If a match is found, return the substring up to that point, else return the original string
+    if match:
+        return text[:match.start()]
+    else:
+        return text
+
 async def clean_llm_reply(message, user, bot):
 
     # Clean the text and prepare it for posting
@@ -264,11 +278,13 @@ async def clean_llm_reply(message, user, bot):
     clean_message = dirty_message.replace(user + ":","")
     clean_message = clean_message.strip()
     
+    clean_message = truncate_from_newline_parenthesis(clean_message)
     parts = clean_message.split("#", 1)
     parts2 = parts[0].split("User1", 1) # Mistral-medium hallucination
+    parts3 = parts2[0].split("@", 1) # Mistral-medium hallucination
 
     # Return nice and clean message
-    return parts2[0]
+    return parts3[0]
     
 # Get the current bot character in a prompt-friendly format
 def get_character(character_card):
