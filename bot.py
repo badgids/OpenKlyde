@@ -307,20 +307,18 @@ async def bot_answer(message, image_description=None):
     user_input = functions.clean_user_message(message.clean_content)
     
     #Is this an image request?
-    #image_request = functions.check_for_image_request(user_input)
+    image_request = functions.check_for_image_request(user_input)
     character = functions.get_character(character_card)
-    image_request = False
     
     global text_api
 
-    #if image_request:
-    #    prompt = await functions.create_image_prompt(user_input, character, text_api)
-    #else:
-    reply = await get_reply(message)
-    history = await functions.get_conversation_history(user, 15)
-    prompt = await functions.create_text_prompt(user_input, user, character, character_card['name'], history, reply, text_api, image_description)
-        
-    
+    if image_request:
+        prompt = await functions.create_image_prompt(user_input, character, text_api)
+    else:
+        reply = await get_reply(message)
+        history = await functions.get_conversation_history(user, 15)
+        prompt = await functions.create_text_prompt(user_input, user, character, character_card['name'], history, reply, text_api, image_description)
+
     queue_item = {
         'prompt': prompt,
         'message': message,
@@ -363,13 +361,16 @@ async def get_reply(message):
     return reply
 
 async def handle_llm_response(content, response):
-    
-    llm_response = json.loads(response)
+
+    llm_response = response
     
     try:
         data = llm_response['results'][0]['text']
     except KeyError:
         data = llm_response['choices'][0]['message']['content']
+
+    if not data:
+        return
     
     llm_message = data
     # do clean only for replies
@@ -385,11 +386,11 @@ async def handle_llm_response(content, response):
         await functions.write_to_log("hm, llm_message is empty..")
         return
 
-    #if content["image"] == True:
-    #    queue_to_process_image.put_nowait(queue_item)
-        
-    #else:
-    queue_to_send_message.put_nowait(queue_item)
+    await functions.write_to_log("LLM response is: " + llm_message)
+    if content["image"] == True:
+        queue_to_process_image.put_nowait(queue_item)
+    else:
+        queue_to_send_message.put_nowait(queue_item)
 
 async def send_to_model_queue():
     global text_api
@@ -408,15 +409,24 @@ async def send_to_model_queue():
             await functions.write_to_log("Sending prompt from " + content["user"] + " to LLM model.")
         else:
             await functions.write_to_log("Sending prompt for " + content['channel'].name + " to LLM model.")
+        await functions.write_to_log("Prompt is: " + content["prompt"])
 
         timeout = ClientTimeout(total=600)
         connector = TCPConnector(limit_per_host=10)
         async with ClientSession(timeout=timeout, connector=connector) as session:
             async with session.post(text_api["address"] + text_api["generation"], headers=text_api["headers"], data=content["prompt"]) as response:
-                response = await response.read()
-                
-                # Do something useful with the response
-                await handle_llm_response(content, response)
+                if response.status == 200:
+                    try:
+                        json_response = await response.json()
+                        await handle_llm_response(content, json_response)
+                    except json.decoder.JSONDecodeError as e:
+                        # Handle the case where response is not JSON-formatted
+                        print(f"Failed to decode JSON response: {e}")
+                        text_response = await response.text()
+                        print(f"Response text was: {text_response}")
+                else:
+                    # Handle non-200 responses here
+                    print(f"HTTP request failed with status: {response.status}")
 
                 queue_to_process_message.task_done()
 
@@ -428,10 +438,12 @@ async def send_to_stable_diffusion_queue():
         image_prompt = await queue_to_process_image.get()
         
         data = image_api["parameters"]
-        data["prompt"] += image_prompt["response"]
+        data["prompt"] = data["preprompt"] + image_prompt["response"]
         data_json = json.dumps(data)
 
         await functions.write_to_log("Sending prompt from " + image_prompt["content"]["user"] + " to Stable Diffusion model.")
+        await functions.write_to_log("Prompt is: "  + image_prompt["response"])
+        await functions.write_to_log("Json sent to SD is: "  + data_json)
         
         async with ClientSession() as session:
             async with session.post(image_api["link"], headers=image_api["headers"], data=data_json) as response:
@@ -540,7 +552,7 @@ def get_start_idx_of_biggest_chunk_from_end(currStr: str, max_length):
 
                 # if somehow chunk was longer than limit without any sentence endings, oh well, return the whole thing
                 if j == (len(currStr) - 1):
-                    functions.write_to_log("sentence longer than maxlength - returning it whole")
+                    print("sentence longer than maxlength - returning it whole")
                     return 0
                     
         current_chunk_len += 1
@@ -623,21 +635,20 @@ async def send_to_user_queue():
        # audio_path = await generate_tts(reply["response"])
        # audio_file = discord.File(audio_path)
         
-        #if reply["content"]["image"]:
-        #    image_file = discord.File(reply["image"])
-        #    await reply["content"]["message"].channel.send(reply["response"], file=image_file, reference=reply["content"]["message"])
-        #    os.remove(reply["image"])
+        if reply["content"]["image"]:
+            image_file = discord.File(reply["image"])
+            await reply["content"]["message"].channel.send(reply["response"], file=image_file, reference=reply["content"]["message"])
+            os.remove(reply["image"])
         
-        #else:
-
-        if not reply["content"]["channel"]:
-            await reply["content"]["message"].channel.send(reply["response"], file=audio_file, reference=reply["content"]["message"])
-            #await reply["content"]["message"].channel.send(reply["response"], reference=reply["content"]["message"])
         else:
-            # send random message on channel
-            #await functions.write_to_log("Sending random message.")
-            print("Sending random message.")
-            await reply["content"]["channel"].send(reply["response"])
+            if not reply["content"]["channel"]:
+                await reply["content"]["message"].channel.send(reply["response"], file=audio_file, reference=reply["content"]["message"])
+                #await reply["content"]["message"].channel.send(reply["response"], reference=reply["content"]["message"])
+            else:
+                # send random message on channel
+                #await functions.write_to_log("Sending random message.")
+                print("Sending random message.")
+                await reply["content"]["channel"].send(reply["response"])
 
 
         queue_to_send_message.task_done()

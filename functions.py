@@ -149,18 +149,25 @@ async def create_image_prompt(user_input, character, text_api):
     
     if "of" in user_input:
         subject = user_input.split('of', 1)[1]
-        prompt = "Below is an instruction that describes a task. Write a response that appropriately completes the request.\n\n### Instruction:\nPlease describe the following in vivid detail:" + subject + "\n\n### Response:\n"
+        prompt = "Please describe the following in maximum three sentences, in vivid detail using descriptive keywords so that someone could draw that based on that description: " + subject + "\n"
     else:
-        prompt = "Below is an instruction that describes a task. Write a response that appropriately completes the request.\n\n### Instruction:\n" + character + "Please describe yourself in vivid detail.\n\n### Response:\n"
+        prompt = "Please describe the way you look in maximum three sentences, in vivid detail using descriptive keywords so that someone could draw you based on that description."
         
     stopping_strings = ["### Instruction:", "### Response:", "You:" ]
     
     data = text_api["parameters"]
-    data.update({"prompt": prompt})
     
     if text_api["name"] == "openai":
-        data.update({"stop": stopping_strings})
+        messages = [
+            {
+                "role": "user",
+                "content": prompt
+            }
+        ]
+ #       data.update({"stop": stopping_strings})
+        data.update({"messages" : messages})
     else:
+        data.update({"prompt": prompt})
         data.update({"stopping_strings": stopping_strings})
 
     data_string = json.dumps(data)
@@ -258,9 +265,10 @@ async def clean_llm_reply(message, user, bot):
     clean_message = clean_message.strip()
     
     parts = clean_message.split("#", 1)
+    parts2 = parts[0].split("User1", 1) # Mistral-medium hallucination
 
     # Return nice and clean message
-    return parts[0]
+    return parts2[0]
     
 # Get the current bot character in a prompt-friendly format
 def get_character(character_card):
