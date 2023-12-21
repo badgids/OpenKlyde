@@ -126,11 +126,18 @@ async def create_text_prompt(user_input, user, character, bot, history, reply, t
     stopping_strings = ["\n" + user + ":", user + ":", bot + ":", "You:", "@Ava", "User", "@" + user, "<|endoftext|>"]
     
     data = text_api["parameters"]
-    data.update({"prompt": prompt})
     
     if text_api["name"] == "openai":
-        data.update({"stop": stopping_strings})
+        messages = [
+            {
+                "role": "user",
+                "content": prompt
+            }
+        ]
+ #       data.update({"stop": stopping_strings})
+        data.update({"messages" : messages})
     else:
+        data.update({"prompt": prompt})
         data.update({"stop_sequence": stopping_strings})
 
     data_string = json.dumps(data)

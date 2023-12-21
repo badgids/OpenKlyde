@@ -369,7 +369,7 @@ async def handle_llm_response(content, response):
     try:
         data = llm_response['results'][0]['text']
     except KeyError:
-        data = llm_response['choices'][0]['text']
+        data = llm_response['choices'][0]['message']['content']
     
     llm_message = data
     # do clean only for replies
@@ -669,7 +669,8 @@ async def on_ready():
     text_api = await functions.set_api("text-default.json")
     image_api = await functions.set_api("image-default.json")
     
-    api_check = await functions.api_status_check(text_api["address"] + text_api["model"], headers=text_api["headers"])
+    if text_api["name"] != "openai":
+        api_check = await functions.api_status_check(text_api["address"] + text_api["model"], headers=text_api["headers"])
 
     character_card = await functions.get_character_card("default.json")
     
