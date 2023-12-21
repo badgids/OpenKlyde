@@ -173,10 +173,20 @@ async def create_image_prompt(user_input, character, text_api):
     data_string = json.dumps(data)
     return data_string
 
+# Clean username before storing a context .txt file with that username
+def clean_username(username):
+    # Replace invalid characters with an underscore
+    cleaned_username = re.sub(r'[<>:"/\\|?*]', '_', username)
+
+    # Remove any trailing spaces or periods (as they are not allowed at the end of Windows filenames)
+    cleaned_username = cleaned_username.rstrip('. ')
+    return cleaned_username
+
 # Get user's conversation history
 async def get_conversation_history(user, lines):
 
-    file = get_file_name("context", user+".txt")
+    user = clean_username(user)
+    file = get_file_name("context", user + ".txt")
     
     # Get as many lines from the file as needed
     contents, length = await get_txt_file(file, lines)
@@ -191,6 +201,8 @@ async def get_conversation_history(user, lines):
 
 async def add_to_conversation_history(message, user, file):
 
+    file = clean_username(file)
+    user = clean_username(user)
     file_name = get_file_name("context", file + ".txt")
     
     content = user + ": " + message + "\n"

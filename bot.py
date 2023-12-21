@@ -434,7 +434,6 @@ async def send_to_stable_diffusion_queue():
     global image_api
 
     while True:
-    
         image_prompt = await queue_to_process_image.get()
         
         data = image_api["parameters"]
@@ -445,22 +444,26 @@ async def send_to_stable_diffusion_queue():
         await functions.write_to_log("Prompt is: "  + image_prompt["response"])
         await functions.write_to_log("Json sent to SD is: "  + data_json)
         
-        async with ClientSession() as session:
-            async with session.post(image_api["link"], headers=image_api["headers"], data=data_json) as response:
-                response = await response.read()
-                sd_response = json.loads(response)
-                if "images" not in sd_response:
-                    await functions.write_to_log("Stable Diffusion did not return a valid image. Ran out of VRAM perhaps?")
-                else:
-                    image = functions.image_from_string(sd_response["images"][0])
-                    
-                    queue_item = {
-                        "response": image_prompt["response"],
-                        "image": image,
-                        "content": image_prompt["content"]
-                    }
-                    queue_to_send_message.put_nowait(queue_item)
-                queue_to_process_image.task_done()
+        try:
+            async with ClientSession() as session:
+                async with session.post(image_api["link"], headers=image_api["headers"], data=data_json) as response:
+                    response = await response.read()
+                    sd_response = json.loads(response)
+                    if "images" not in sd_response:
+                        await functions.write_to_log("Stable Diffusion did not return a valid image. Ran out of VRAM perhaps?")
+                    else:
+                        image = functions.image_from_string(sd_response["images"][0])
+
+                        queue_item = {
+                            "response": image_prompt["response"],
+                            "image": image,
+                            "content": image_prompt["content"]
+                        }
+                        queue_to_send_message.put_nowait(queue_item)
+        except Exception as e:
+            await functions.write_to_log("Connection to Stable Diffusion failed")
+
+        queue_to_process_image.task_done()
 
 # New function to handle TTS generation
 async def generate_tts(text):
@@ -746,7 +749,8 @@ history = app_commands.Group(name="conversation-history", description="View or c
 @history.command(name="reset", description="Reset your conversation history with the bot.")
 async def reset_history(interaction):
     user = str(interaction.user.display_name)
-    user= user.replace(" ", "")
+    user = user.replace(" ", "")
+    user = functions.clean_username(user)
 
     file_name = functions.get_file_name("context", user + ".txt")
 
@@ -767,7 +771,8 @@ async def view_history(interaction):
     # Get the user who started the interaction and find their file.
 
     user = str(interaction.user.display_name)
-    user= user.replace(" ", "")
+    user = user.replace(" ", "")
+    user = functions.clean_username(user)
 
     file_name = functions.get_file_name("context", user + ".txt")
     
