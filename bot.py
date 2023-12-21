@@ -99,19 +99,6 @@ class TestSplitDialogue(unittest.TestCase):
         #expected_parts = ["a" * 100 + "😊", "b" * 74]
         self.assertEqual(len(split_dialogue(dialogue, 175)), 1)
 
-async def update_status():
-
-    global status_last_update
-    now = datetime.datetime.now()
-    
-    # If status has never been updated, or it's been more than 30 seconds, update status
-    if status_last_update == None or now - status_last_update > datetime.timedelta(seconds=30):
-        
-        data = await functions.check_bot_temps()
-        activity = discord.Activity(type=discord.ActivityType.watching, name=data)
-        await client.change_presence(activity=activity)
-        status_last_update = datetime.datetime.now()
-
 # Helper function to convert image to base64
 def encode_image_to_base64(image_bytes):
     return base64.b64encode(image_bytes).decode('utf-8')
@@ -697,17 +684,12 @@ async def on_ready():
     client.tree.add_command(character)
     client.tree.add_command(parameters)
     await client.tree.sync()
-        
-    # Check bot temps and update bot status accordingly
-    await update_status()
 
 @client.event
 async def on_message(message):
     
     if message is None:
         return
-    # Update hardware status
-    await update_status()
     
     # Bot will now either do or not do something!
     await bot_behavior(message)

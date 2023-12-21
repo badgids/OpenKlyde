@@ -9,12 +9,6 @@ from PIL import Image
 import io
 import datetime
 
-# A function for checking bot's temperature (lterally, card temps)
-async def check_bot_temps():
-    process = await asyncio.create_subprocess_exec("powershell.exe", "S:\AI\extra_scripts\strippedinfo.ps1", stdout=asyncio.subprocess.PIPE)
-    output, _ = await process.communicate()
-    return output.decode()
-
 # Set an API struct to whatever is in a JSON file to our heart's content
 async def set_api(config_file):
 
