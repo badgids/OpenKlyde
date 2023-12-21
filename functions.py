@@ -123,7 +123,7 @@ async def create_text_prompt(user_input, user, character, bot, history, reply, t
         prompt = character + history + reply + user + ": " + user_input + "\n" + image_prompt + "\n" + bot + ": "
     else:
         prompt = character + history + reply + user + ": " + user_input + "\n" + bot + ": "
-    stopping_strings = ["\n" + user + ":", user + ":", bot + ":", "You:", "@Ava", "User"]
+    stopping_strings = ["\n" + user + ":", user + ":", bot + ":", "You:", "@Ava", "User", "@" + user, "<|endoftext|>"]
     
     data = text_api["parameters"]
     data.update({"prompt": prompt})
@@ -235,6 +235,8 @@ def clean_user_message(user_input):
 
     # Remove the bot's tag from the input since it's not needed.
     user_input = user_input.replace("@Kobold","")
+
+    user_input = user_input.replace("<|endoftext|>","")
     
     # Remove any spaces before and after the text.
     user_input = user_input.strip()

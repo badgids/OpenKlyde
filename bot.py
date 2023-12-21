@@ -237,7 +237,7 @@ async def bot_behavior(message):
         # and the bot was mentioned in this guild
         if message.guild and message.guild.id in bot_last_message_time:
             time_since_bot_last_spoke = datetime.datetime.now() - bot_last_message_time[message.guild.id]
-            if time_since_bot_last_spoke.total_seconds() >= 20:  # 2 minutes * 60 seconds
+            if time_since_bot_last_spoke.total_seconds() >= 200000:  # 2 minutes * 60 seconds
                 # Check if there's a recorded channel from a bot mention
                 if message.guild.id in bot_last_mentioned_channel:
 #                    await functions.write_to_log("Initiate random message send")
