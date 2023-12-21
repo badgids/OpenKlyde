@@ -4,6 +4,7 @@ import os
 import asyncio
 import re
 import base64
+import random
 from PIL import Image
 import io
 import datetime
@@ -91,6 +92,30 @@ def check_for_image_request(user_message):
     result = bool(pattern.search(user_message))
     return result
 
+async def create_prompt_for_random_message(character, bot, text_api):
+    random_msg_prompt = random.choice([
+        "You are bored and want to send a random message on your favorite Discord channel for attention. Write a random message as yourself, talking about what you've been up to.",
+        "You are bored and want to send a random message on your favorite Discord channel for attention. Write a random message as yourself, ranting about something that irks you.",
+        "You are bored and want to send a random message on your favorite Discord channel for attention. Write a random message as yourself, saying a random fact that you found interesting.",
+        "You are bored and want to send a random message on your favorite Discord channel for attention. Write a random message as yourself, saying something nefarious or controversial to stir up the chat.",
+    ])
+    prompt = character + "\n" + random_msg_prompt + "\n"# + bot + ": "
+#    random_m = "You are bored and want to send a random message on your favorite Discord channel for attention. Write a random message as yourself, talking about what you've been up to."
+    #prompt = character + "\n" + random_m + bot + ": "
+    stopping_strings = ["\n" + ":", bot + ":", "You:", "@Ava", "User"]
+    
+    data = text_api["parameters"]
+    prompt = "[INST] " + prompt + " [/INST]" # for Mixtral
+    data.update({"prompt": prompt})
+    
+    if text_api["name"] == "openai":
+        data.update({"stop": stopping_strings})
+    else:
+        data.update({"stop_sequence": stopping_strings})
+
+    data_string = json.dumps(data)
+    return data_string
+
 async def create_text_prompt(user_input, user, character, bot, history, reply, text_api, image_description=None):
 
     if image_description:
@@ -98,7 +123,7 @@ async def create_text_prompt(user_input, user, character, bot, history, reply, t
         prompt = character + history + reply + user + ": " + user_input + "\n" + image_prompt + "\n" + bot + ": "
     else:
         prompt = character + history + reply + user + ": " + user_input + "\n" + bot + ": "
-    stopping_strings = ["\n" + user + ":", user + ":", bot + ":", "You:", "\n"]
+    stopping_strings = ["\n" + user + ":", user + ":", bot + ":", "You:", "@Ava", "User"]
     
     data = text_api["parameters"]
     data.update({"prompt": prompt})
@@ -106,7 +131,7 @@ async def create_text_prompt(user_input, user, character, bot, history, reply, t
     if text_api["name"] == "openai":
         data.update({"stop": stopping_strings})
     else:
-        data.update({"stopping_strings": stopping_strings})
+        data.update({"stop_sequence": stopping_strings})
 
     data_string = json.dumps(data)
     return data_string
@@ -240,10 +265,10 @@ def get_character(character_card):
     # Instructions on what the bot should do. This is where an instruction model will get its stuff.
     character = character + character_card["instructions"]
 
-    examples2 = [] # put example responses here    
+    examples = [] # put example responses here    
 
     # Example messages!
-    character = character + " Here are examples of how you speak: " + "\n" + '\n'.join(examples2) +"\n"
+    character = character + " Here are examples of how you speak: " + "\n" + '\n'.join(examples) +"\n"
 
     return character
     

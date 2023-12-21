@@ -12,6 +12,7 @@ import io
 import hashlib
 import re
 import unittest
+import logging
 from typing import List
 from pydub import AudioSegment
 from PIL import Image
@@ -23,6 +24,8 @@ from TTS.tts.configs.xtts_config import XttsConfig
 from TTS.tts.models.xtts import Xtts
 
 from aiohttp import ClientSession
+from aiohttp import ClientTimeout
+from aiohttp import TCPConnector
 from discord.ext import commands
 from discord import app_commands
 from discord import Interaction
@@ -140,7 +143,7 @@ async def handle_image(message):
                 
                 # Define the POST data
                 post_data = {
-                    'prompt': "USER: Describe what you see in this image: [img-1] \nASSISTANT: Here we have ",
+                    'prompt': "USER: Describe what you see and recognize in this image: [img-1] \nASSISTANT: ",
                     'n_predict': 256,
                     'image_data': [{"data": base64_image, "id": 1}],
                     'ignore_eos': False,
@@ -191,13 +194,36 @@ async def handle_image(message):
 bot_last_message_time = {}
 bot_last_mentioned_channel = {}
 
+async def bot_send_random_message_on_channel(channel):
+    character = functions.get_character(character_card)
+    
+    global text_api
+
+    #reply = await get_reply(message)
+    #history = await functions.get_conversation_history(user, 15)
+#    await functions.write_to_log("Assembling random msg prompt")
+    prompt = await functions.create_prompt_for_random_message(character, character_card['name'], text_api)
+#    await functions.write_to_log("Random message prompt assembled: " + prompt)
+    
+    queue_item = {
+        'prompt': prompt,
+        'message': None,
+        'user_input': None,
+        'user': None,
+        'image': None,
+        'channel': channel
+    }
+    
+    queue_to_process_message.put_nowait(queue_item)
+
 async def bot_behavior(message):
     global bot_last_message_time
     global bot_last_mentioned_channel
 
     # If the bot wrote the message, update last message time
     if message.author == client.user:
-        bot_last_message_time[message.guild.id] = datetime.datetime.now()
+        if message.guild:
+            bot_last_message_time[message.guild.id] = datetime.datetime.now()
         return False
     
     # If the bot is mentioned in a message and not a DM, update last mentioned channel
@@ -205,19 +231,21 @@ async def bot_behavior(message):
         bot_last_mentioned_channel[message.guild.id] = message.channel
 
 # TODO: implement sending random messages to channel after timeout
- #   # If message not directed to bot
- #   if not client.user.mentioned_in(message):
- #       # Check if it's been 30 minutes since the bot last spoke
- #       # and the bot was mentioned in this guild
- #       if message.guild and message.guild.id in bot_last_message_time:
- #           time_since_bot_last_spoke = datetime.datetime.now() - bot_last_message_time[message.guild.id]
- #           if time_since_bot_last_spoke.total_seconds() >= 180:  # 3 minutes * 60 seconds
- #               # Check if there's a recorded channel from a bot mention
- #               if message.guild.id in bot_last_mentioned_channel:
- #                   await bot_answer_with_pun(bot_last_mentioned_channel[message.guild.id])
- #                   # Update the last message time after sending a pun
- #                   bot_last_message_time[message.guild.id] = datetime.datetime.now()
- #                   return True
+    # If message not directed to bot
+    if not client.user.mentioned_in(message):
+        # Check if it's been 30 minutes since the bot last spoke
+        # and the bot was mentioned in this guild
+        if message.guild and message.guild.id in bot_last_message_time:
+            time_since_bot_last_spoke = datetime.datetime.now() - bot_last_message_time[message.guild.id]
+            if time_since_bot_last_spoke.total_seconds() >= 20:  # 2 minutes * 60 seconds
+                # Check if there's a recorded channel from a bot mention
+                if message.guild.id in bot_last_mentioned_channel:
+#                    await functions.write_to_log("Initiate random message send")
+                    await bot_send_random_message_on_channel(bot_last_mentioned_channel[message.guild.id])
+#                    await functions.write_to_log("returned from bot_send_random_message_on_channel")
+                    # Update the last message time after sending a pun
+                    bot_last_message_time[message.guild.id] = datetime.datetime.now()
+                    return True
 
 
 
@@ -298,7 +326,8 @@ async def bot_answer(message, image_description=None):
         'message': message,
         'user_input': user_input,
         'user': user,
-        'image': image_request
+        'image': image_request,
+        'channel': None
     }
     
     queue_to_process_message.put_nowait(queue_item)
@@ -342,9 +371,19 @@ async def handle_llm_response(content, response):
     except KeyError:
         data = llm_response['choices'][0]['text']
     
-    llm_message = await functions.clean_llm_reply(data, content["user"], character_card["name"])
+    llm_message = data
+    # do clean only for replies
+    if not content['channel']:
+        llm_message = await functions.clean_llm_reply(data, content["user"], character_card["name"])
+    else:
+        llm_message = llm_message.replace(character_card["name"] + ":","")
+        llm_message = llm_message.strip()
+#        await functions.write_to_log("Random message cleaned: " + llm_message)
     
     queue_item = {"response": llm_message,"content": content}
+    if not llm_message:
+        await functions.write_to_log("hm, llm_message is empty..")
+        return
 
     #if content["image"] == True:
     #    queue_to_process_image.put_nowait(queue_item)
@@ -358,14 +397,21 @@ async def send_to_model_queue():
     while True:
         # Get the queue item that's next in the list
         content = await queue_to_process_message.get()
+        await functions.write_to_log("send_to_model_queue()")
         
-        # Add the message to the user's history
-        await functions.add_to_conversation_history(content["user_input"], content["user"], content["user"])
+        # Add the message to the user's history (if this is a reply)
+        if not content['channel']:
+            await functions.add_to_conversation_history(content["user_input"], content["user"], content["user"])
         
         # Grab the data JSON we want to send it to the LLM
-        await functions.write_to_log("Sending prompt from " + content["user"] + " to LLM model.")
+        if not content['channel']:
+            await functions.write_to_log("Sending prompt from " + content["user"] + " to LLM model.")
+        else:
+            await functions.write_to_log("Sending prompt for " + content['channel'].name + " to LLM model.")
 
-        async with ClientSession() as session:
+        timeout = ClientTimeout(total=600)
+        connector = TCPConnector(limit_per_host=10)
+        async with ClientSession(timeout=timeout, connector=connector) as session:
             async with session.post(text_api["address"] + text_api["generation"], headers=text_api["headers"], data=content["prompt"]) as response:
                 response = await response.read()
                 
@@ -533,27 +579,30 @@ async def send_to_user_queue():
         # Grab the reply that will be sent
         reply = await queue_to_send_message.get()
         
-        # Add the message to user's history
-        await functions.add_to_conversation_history(reply["response"], character_card["name"], reply["content"]["user"])
+        if not reply["content"]["channel"]:
+            # Add the message to user's history
+            await functions.add_to_conversation_history(reply["response"], character_card["name"], reply["content"]["user"])
 
-        # Update reactions
-        await reply["content"]["message"].remove_reaction('✨', client.user)
-        await reply["content"]["message"].add_reaction('✅')
+            # Update reactions
+            await reply["content"]["message"].remove_reaction('✨', client.user)
+            await reply["content"]["message"].add_reaction('✅')
 
         # After getting the dialogue, split it
-        await functions.write_to_log("reply response is len " + str(len(reply["response"])))
+#        await functions.write_to_log("reply response is len " + str(len(reply["response"])))
         dialogue_parts = split_dialogue(reply["response"], 200)
-        await functions.write_to_log("dialogue parts is len " + str(len(dialogue_parts)))
+#        await functions.write_to_log("dialogue parts is len " + str(len(dialogue_parts)))
 
         # Generate TTS audio for each part
         audio_parts = []
         for part in dialogue_parts:
             # better not send emojis to TTS
             part = strip_emoji(part)
-            await functions.write_to_log("part = " + part)
+#            await functions.write_to_log("part = " + part)
             audio_path = await generate_tts(part)
             audio_parts.append(AudioSegment.from_wav(audio_path))
             os.remove(audio_path)
+
+        #print("finished sending tts")
 
         # Create a silent audio segment of 0.5 seconds (500 milliseconds)
         silence = AudioSegment.silent(duration=800)     
@@ -580,9 +629,16 @@ async def send_to_user_queue():
         #    os.remove(reply["image"])
         
         #else:
-        await reply["content"]["message"].channel.send(reply["response"], file=audio_file, reference=reply["content"]["message"])
 
-        os.remove(combined_audio_path)
+        if not reply["content"]["channel"]:
+            await reply["content"]["message"].channel.send(reply["response"], file=audio_file, reference=reply["content"]["message"])
+            #await reply["content"]["message"].channel.send(reply["response"], reference=reply["content"]["message"])
+        else:
+            # send random message on channel
+            #await functions.write_to_log("Sending random message.")
+            print("Sending random message.")
+            await reply["content"]["channel"].send(reply["response"])
+
 
         queue_to_send_message.task_done()
 
@@ -595,6 +651,8 @@ async def on_ready():
     global image_api
     global character_card
     global tts_config, tts_model, gpt_cond_latent, speaker_embedding
+
+    logging.basicConfig(level=logging.DEBUG)
 
     # Load TTS model
     await functions.write_to_log("Loading TTS model...")
@@ -633,6 +691,8 @@ async def on_ready():
 @client.event
 async def on_message(message):
     
+    if message is None:
+        return
     # Update hardware status
     await update_status()
     
