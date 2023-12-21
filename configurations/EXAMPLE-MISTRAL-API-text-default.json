@@ -1,0 +1,17 @@
+{
+	"name": "openai",
+	"address": "https://api.mistral.ai/v1/",
+	"generation": "chat/completions",
+	"headers": {
+		"Accept": "application/json",
+		"Content-Type": "application/json",
+		"Authorization": "Bearer YOUR_MISTRAL_API_KEY_HERE"
+	},
+    "parameters": {
+		"model": "mistral-medium",
+		"messages": {},
+		"max_tokens": 240,
+		"temperature": 0.95,
+		"top_p": 0.80
+    }
+}

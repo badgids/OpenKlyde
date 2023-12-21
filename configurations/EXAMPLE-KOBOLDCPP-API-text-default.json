@@ -1,0 +1,44 @@
+{
+	"name": "koboldcpp",
+	"address": "http://localhost:5001/api/v1/",
+	"model": "model",
+	"generation": "generate",
+	"headers": {
+		"Accept": "application/json",
+		"Content-Type": "application/json"
+	},
+	"instruction-user": "### Instruction",
+	"instruction-response": "### Response",
+    "parameters": {
+		"prompt": "",
+		"stop_sequence": [],
+		"add_bos_token": "True",
+		"ban_eos_token": "True",
+		"do_sample": "False",
+		"max_length": 400,
+		"max_tokens": 400,
+		"max_context_length": 2048,
+		"genamt": 1095,
+		"temperature": 0.95,
+		"top_k": 0,
+		"top_p": 0.75,
+		"top_a": 0,
+		"typical": 1,
+		"tfs": 1.0,
+		"rep_pen": 1.1,
+		"rep_pen_range": 128,
+		"rep_pen_slope": 0.9,
+		"use_default_badwordsids": "True",
+		"newline_as_stopseq": "True",
+		"early_stopping": "True",
+		"sampler_order": [
+			6,
+			0,
+			1,
+			3,
+			4,
+			2,
+			5
+		]
+    }
+}
