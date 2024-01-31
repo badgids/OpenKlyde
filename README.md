@@ -24,7 +24,8 @@ Download Automatic1111 here:
 Rough notes - I will polish the README later:
 
 ### XTTS
-- Current revision uses XTTS2 (uses the TTS Python library, lookup on coqui.ai) and it is REQUIRED (will make it as an option later)
+- Current revision uses XTTS2 (uses the TTS Python library, lookup on coqui.ai)
+    - if you do not want to use TTS pass --no-tts like so: 'python bot.py --no-tts'
 - XTTS2 uses some RAM/VRAM so bear that in mind
 - for setup I used windows gpu steps from https://github.com/daswer123/xtts-api-server (no need to clone xtts-api-server, just do the install steps from its README)
 - definitely need 'pip install pillow' and 'pip install TTS'
@@ -78,6 +79,7 @@ To run this bot:
 4. Install the requirements. I suggest using an Anaconda or Miniconda instance.
     ```pip install -r requirements.txt```
 5. Run the bot with `python bot.py`
+    - optionally with --no-tts flag
 
 Cheers!
 
