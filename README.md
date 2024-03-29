@@ -19,9 +19,9 @@ If you want to generate images, you'll also need Automatic1111 Stable Diffusion 
 Download Automatic1111 here:
 [Automatic1111](https://github.com/AUTOMATIC1111/stable-diffusion-webui)
 
-----NEW----: Elbios changes
+----NEW----: 
 
-Rough notes - I will polish the README later:
+XTTS support added thanks to Elbios's changes in their fork!
 
 ### XTTS
 - Current revision uses XTTS2 (uses the TTS Python library, lookup on coqui.ai)
