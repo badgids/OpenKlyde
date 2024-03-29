@@ -19,7 +19,7 @@
 		"max_tokens": 400,
 		"max_context_length": 2048,
 		"genamt": 1095,
-		"temp": 0.95,
+		"temperature": 0.95,
 		"top_k": 0,
 		"top_p": 0.75,
 		"top_a": 0,

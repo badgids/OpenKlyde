@@ -1,0 +1,36 @@
+we use 'generate' endpoint
+with basic_api_flag = False
+or in newer version is 'api_format=2'
+
+koboldcpp.py:486 handles that
+(the else block in generate_text() function)
+
+here are the params defined by koboldcpp api:
+
+            return generate(
+                prompt=genparams.get('prompt', ""),
+                memory=genparams.get('memory', ""),
+                max_context_length=genparams.get('max_context_length', maxctx),
+                max_length=genparams.get('max_length', 100),
+                temperature=genparams.get('temperature', 0.7),
+                top_k=genparams.get('top_k', 100),
+                top_a=genparams.get('top_a', 0.0),
+                top_p=genparams.get('top_p', 0.92),
+                min_p=genparams.get('min_p', 0.0),
+                typical_p=genparams.get('typical', 1.0),
+                tfs=genparams.get('tfs', 1.0),
+                rep_pen=genparams.get('rep_pen', 1.1),
+                rep_pen_range=genparams.get('rep_pen_range', 256),
+                mirostat=genparams.get('mirostat', 0),
+                mirostat_tau=genparams.get('mirostat_tau', 5.0),
+                mirostat_eta=genparams.get('mirostat_eta', 0.1),
+                sampler_order=genparams.get('sampler_order', [6,0,1,3,4,2,5]),
+                seed=genparams.get('sampler_seed', -1),
+                stop_sequence=genparams.get('stop_sequence', []),
+                use_default_badwordsids=genparams.get('use_default_badwordsids', False),
+                stream_sse=stream_flag,
+                grammar=genparams.get('grammar', ''),
+                grammar_retain_state = genparams.get('grammar_retain_state', False),
+                genkey=genparams.get('genkey', ''),
+                trimstop=genparams.get('trim_stop', False),
+                quiet=is_quiet)

@@ -5,17 +5,18 @@
         "Content-Type": "application/json"
     },
   "parameters": {
-    "prompt": "masterpiece, best quality, ",
+    "preprompt": "Masterpiece, best quality, beautiful, intricate, ",
     "sampler_name": "DPM++ 2M Karras",
-    "enable_hr": "True",
-    "hr_scale": 1,
-    "hr_upscaler": "R-ESRGAN 4x+ Anime6B",
-    "denoising_strength": 0.55,
-    "steps": 20,
-    "cfg_scale": 8.0,
+    "steps": 30,
+    "cfg_scale": 6.5,
     "width": 512,
     "height": 512,
-    "restore_faces": "False",
-    "negative_prompt": "EasyNegative, badhandv4, (worst quality, low quality:1.4), normal quality, lowres, (jpeg artifacts:1.4), cropped, (lip, nose, tooth, rouge, lipstick, eyeshadow:1.4), (blush:1.2), (realistic, lip, nose, tooth), (depth of field, bokeh, blurry, film grain, chromatic aberration, lens flare:1.0), greyscale, monochrome, dusty sunbeams, trembling, motion lines, motion blur, emphasis lines, extra fingers, fewer fingers, missing fingers, extra digits, fewer digits, bad anatomy, bad hands, text, title, logo, signature, error, watermark, username, artist name"
+    "seed": -1,
+    "restore_faces": true,
+    "enable_hr": true,
+    "hr_scale": 2,
+    "hr_upscaler": "Latent",
+    "denoising_strength": 0.65,
+    "negative_prompt": "EasyNegative, badhandv4, blurry, lowres, cropped, ugly, morbid, mutilated, worst quality, low quality, normal quality, jpeg artifacts, (depth of field, bokeh, film grain, chromatic aberration, lens flare:1.0), extra fingers, fewer fingers, missing fingers, extra digits, fewer digits, bad anatomy, bad hands, text, title, logo, signature, error, watermark, username, artist name"
   }
 }

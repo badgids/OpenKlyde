@@ -4,15 +4,10 @@ import os
 import asyncio
 import re
 import base64
+import random
 from PIL import Image
 import io
 import datetime
-
-# A function for checking bot's temperature (lterally, card temps)
-# async def check_bot_temps():
-#     process = await asyncio.create_subprocess_exec("powershell.exe", "S:\AI\extra_scripts\strippedinfo.ps1", stdout=asyncio.subprocess.PIPE)
-#     output, _ = await process.communicate()
-#     return output.decode()
 
 # Set an API struct to whatever is in a JSON file to our heart's content
 
@@ -111,12 +106,77 @@ async def create_text_prompt(user_input, user, character, bot, history, reply, t
     stopping_strings = ["\n" + user + ":", user + ":", bot + ":", "You:"]
 
     data = text_api["parameters"]
+    prompt = "[INST] " + prompt + " [/INST]"  # for Mixtral
     data.update({"prompt": prompt})
 
     if text_api["name"] == "openai":
         data.update({"stop": stopping_strings})
     else:
-        data.update({"stopping_strings": stopping_strings})
+        data.update({"stop_sequence": stopping_strings})
+
+    data_string = json.dumps(data)
+    return data_string
+
+
+async def create_text_prompt(user_input, user, character, bot, history, reply, text_api, image_description=None):
+
+    if image_description:
+        image_prompt = "[NOTE TO AI - USER MESSAGE CONTAINS AN IMAGE. IMAGE RECOGNITION HAS BEEN RUN ON THE IMAGE. DESCRIPTION OF THE IMAGE: " + \
+            image_description.capitalize() + "]"
+        prompt = character + history + reply + user + ": " + \
+            user_input + "\n" + image_prompt + "\n" + bot + ": "
+    else:
+        prompt = character + history + reply + user + \
+            ": " + user_input + "\n" + bot + ": "
+    stopping_strings = ["\n" + user + ":", user + ":", bot +
+                        ":", "You:", "@Ava", "User", "@" + user, "<|endoftext|>"]
+
+    data = text_api["parameters"]
+
+    if text_api["name"] == "openai":
+        messages = [
+            {
+                "role": "user",
+                "content": prompt
+            }
+        ]
+#       data.update({"stop": stopping_strings})
+        data.update({"messages": messages})
+    else:
+        data.update({"prompt": prompt})
+        data.update({"stop_sequence": stopping_strings})
+
+    data_string = json.dumps(data)
+    return data_string
+
+
+async def create_text_prompt(user_input, user, character, bot, history, reply, text_api, image_description=None):
+
+    if image_description:
+        image_prompt = "[NOTE TO AI - USER MESSAGE CONTAINS AN IMAGE. IMAGE RECOGNITION HAS BEEN RUN ON THE IMAGE. DESCRIPTION OF THE IMAGE: " + \
+            image_description.capitalize() + "]"
+        prompt = character + history + reply + user + ": " + \
+            user_input + "\n" + image_prompt + "\n" + bot + ": "
+    else:
+        prompt = character + history + reply + user + \
+            ": " + user_input + "\n" + bot + ": "
+    stopping_strings = ["\n" + user + ":", user + ":", bot +
+                        ":", "You:", "@Ava", "User", "@" + user, "<|endoftext|>"]
+
+    data = text_api["parameters"]
+
+    if text_api["name"] == "openai":
+        messages = [
+            {
+                "role": "user",
+                "content": prompt
+            }
+        ]
+#       data.update({"stop": stopping_strings})
+        data.update({"messages": messages})
+    else:
+        data.update({"prompt": prompt})
+        data.update({"stop_sequence": stopping_strings})
 
     data_string = json.dumps(data)
     return data_string
@@ -128,10 +188,9 @@ async def create_image_prompt(user_input, character, text_api):
 
     if "of" in user_input:
         subject = user_input.split('of', 1)[1]
-        prompt = "Below is an instruction that describes a task. Write a response that appropriately completes the request.\n\n### Instruction:\nPlease describe the following in vivid detail:" + subject + "\n\n### Response:\n"
+        prompt = "Please describe the following in maximum three sentences, in vivid detail using descriptive keywords so that someone could draw that based on that description: " + subject + "\n"
     else:
-        prompt = "Below is an instruction that describes a task. Write a response that appropriately completes the request.\n\n### Instruction:\n" + \
-            character + "Please describe yourself in vivid detail.\n\n### Response:\n"
+        prompt = "Please describe the way you look in maximum three sentences, in vivid detail using descriptive keywords so that someone could draw you based on that description."
 
     stopping_strings = ["### Instruction:", "### Response:", "You:"]
 
@@ -139,19 +198,39 @@ async def create_image_prompt(user_input, character, text_api):
     data.update({"prompt": prompt})
 
     if text_api["name"] == "openai":
-        data.update({"stop": stopping_strings})
+        messages = [
+            {
+                "role": "user",
+                "content": prompt
+            }
+        ]
+ #       data.update({"stop": stopping_strings})
+        data.update({"messages": messages})
     else:
+        data.update({"prompt": prompt})
         data.update({"stopping_strings": stopping_strings})
 
     data_string = json.dumps(data)
     return data_string
+
+# Clean username before storing a context .txt file with that username
+
+
+def clean_username(username):
+    # Replace invalid characters with an underscore
+    cleaned_username = re.sub(r'[<>:"/\\|?*]', '_', username)
+
+    # Remove any trailing spaces or periods (as they are not allowed at the end of Windows filenames)
+    cleaned_username = cleaned_username.rstrip('. ')
+    return cleaned_username
 
 # Get user's conversation history
 
 
 async def get_conversation_history(user, lines):
 
-    file = get_file_name("context", user+".txt")
+    user = clean_username(user)
+    file = get_file_name("context", user + ".txt")
 
     # Get as many lines from the file as needed
     contents, length = await get_txt_file(file, lines)
@@ -167,6 +246,8 @@ async def get_conversation_history(user, lines):
 
 async def add_to_conversation_history(message, user, file):
 
+    file = clean_username(file)
+    user = clean_username(user)
     file_name = get_file_name("context", file + ".txt")
 
     content = user + ": " + message + "\n"
@@ -233,10 +314,28 @@ def clean_user_message(user_input):
     # Remove the bot's tag from the input since it's not needed.
     user_input = user_input.replace("@Kobold", "")
 
+    user_input = user_input.replace("<|endoftext|>", "")
+
     # Remove any spaces before and after the text.
     user_input = user_input.strip()
 
     return user_input
+
+# Mistral-medium hallucinates some stuff in parentheses on newlines and then it hallucinates more
+
+
+def truncate_from_newline_parenthesis(text):
+    # This regex pattern matches an open parenthesis at the start of any line within the text
+    pattern = r'^\('
+
+    # Use the MULTILINE flag to ensure ^ matches the start of each line
+    match = re.search(pattern, text, re.MULTILINE)
+
+    # If a match is found, return the substring up to that point, else return the original string
+    if match:
+        return text[:match.start()]
+    else:
+        return text
 
 
 async def clean_llm_reply(message, user, bot):
@@ -246,10 +345,13 @@ async def clean_llm_reply(message, user, bot):
     clean_message = dirty_message.replace(user + ":", "")
     clean_message = clean_message.strip()
 
+    clean_message = truncate_from_newline_parenthesis(clean_message)
     parts = clean_message.split("#", 1)
+    parts2 = parts[0].split("User1", 1)  # Mistral-medium hallucination
+    parts3 = parts2[0].split("@", 1)  # Mistral-medium hallucination
 
     # Return nice and clean message
-    return parts[0]
+    return parts3[0]
 
 # Get the current bot character in a prompt-friendly format
 
@@ -265,9 +367,11 @@ def get_character(character_card):
     # Instructions on what the bot should do. This is where an instruction model will get its stuff.
     character = character + character_card["instructions"]
 
+    examples = []  # put example responses here
+
     # Example messages!
-    character = character + "Here is how you speak: " + \
-        "\n" + '\n'.join(character_card['examples']) + "\n"
+    character = character + " Here are examples of how you speak: " + \
+        "\n" + '\n'.join(examples) + "\n"
 
     return character
 

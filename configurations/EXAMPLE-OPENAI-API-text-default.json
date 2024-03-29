@@ -1,0 +1,17 @@
+{
+	"name": "openai",
+	"address": "https://api.openai.com/v1/",
+	"generation": "chat/completions",
+	"headers": {
+		"Accept": "application/json",
+		"Content-Type": "application/json",
+		"Authorization": "Bearer YOUR_OPENAI_API_KEY_HERE"
+	},
+    "parameters": {
+		"model": "gpt-3.5-turbo-16k",
+		"messages": {},
+		"max_tokens": 240,
+		"temperature": 0.95,
+		"top_p": 0.80
+    }
+}
